@@ -1,0 +1,23 @@
+pipeline {
+  agent any
+  tools {
+    maven "maven-3"
+  }
+  stages {
+    stage ("Deploy demo-lib") {
+      steps {
+        build 'deploy-com.github.andylke.demo-demo-lib'
+      }
+    }
+    stage ("Deploy demo-flyway") {
+      steps {
+        build 'deploy-com.github.andylke.demo-demo-flyway'
+      }
+    }
+    stage ("Deploy demo-app") {
+      steps {
+        build 'deploy-demo-jenkins-pipeline-deploy-web'
+      }
+    }
+  }
+}

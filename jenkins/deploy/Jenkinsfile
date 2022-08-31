@@ -1,0 +1,181 @@
+pipeline {
+  agent any
+  tools {
+    maven "maven-3"
+  }
+  stages {
+    stage ("Load Environment Properties") {
+      steps {
+        script {
+          /*
+          Managed Files:
+          DEMO_PROPERTIES
+          - K8S_NAMESPACE = demo
+          */
+          env.ENVIRONMENT_PROPERTIES_ID = env.JOB_NAME
+              .substring(0, env.JOB_NAME.lastIndexOf("/"))
+              .replaceAll(/[^\w]/, "_")
+              .toUpperCase() + "_PROPERTIES"
+          configFileProvider([configFile(fileId: ENVIRONMENT_PROPERTIES_ID, variable: "ENVIRONMENT_PROPERTIES_FILE")]) {
+            def props = readProperties  file: "${ENVIRONMENT_PROPERTIES_FILE}"
+            env.K8S_NAMESPACE = props["K8S_NAMESPACE"]
+            env.K8S_INGRESS_HOST_SUFFIX = props["K8S_INGRESS_HOST_SUFFIX"]
+          }
+        }
+      }
+    }
+    stage ("Set Environment Variables") {
+      steps {
+        script {
+          /*
+          Global Properties:
+          - DEMO_PROJECT_GROUP_NAME = demo
+          - DEMO_GIT_CREDENTIAL_ID = git-credential
+          - DEMO_MAVEN_SETTINGS = DEMO_MAVEN_SETTINGS
+          - DEMO_DOCKER_REGISTRY_URL = http://localhost:8082/repository/docker-hosted/
+          - DEMO_DOCKER_CREDENTIAL_ID = docker-credential
+          - DEMO_DOCKER_IMAGE_NAME = eclipse-temurin
+          - DEMO_DOCKER_IMAGE_TAG = 11-jdk
+          */
+          env.PROJECT_GROUP_ID = env.DEMO_PROJECT_GROUP_NAME
+          def mavenPom = readMavenPom()
+          env.PROJECT_ARTIFACT_ID = mavenPom.getArtifactId()
+          env.PROJECT_VERSION = mavenPom.getVersion()
+
+          env.PROJECT_DEPENDENCIES = "com.github.andylke.demo-demo-lib"
+
+          env.GIT_CREDENTIAL_ID = env.DEMO_GIT_CREDENTIAL_ID
+          env.GIT_COMMITTER_NAME = env.BUILD_TAG
+          env.GIT_COMMITTER_EMAIL = env.BUILD_URL
+          env.GIT_AUTHOR_NAME_AND_EMAIL = "Jenkins <" + env.JENKINS_URL + ">"
+          env.GIT_URL_SCHEME = env.GIT_URL.substring(0, env.GIT_URL. indexOf('://') + 3)
+          env.GIT_URL_DOMAIN_AND_PATH = env.GIT_URL.minus(env.GIT_URL_SCHEME)
+          def (remoteRepository, remoteBranch) = GIT_BRANCH.split("/")
+          env.GIT_REMOTE_REPOSITORY_NAME = remoteRepository
+          env.GIT_REMOTE_BRANCH_NAME = remoteBranch
+          env.GIT_PROJECT_GROUP_URL = env.GIT_URL.substring(0, env.GIT_URL.lastIndexOf("/"))
+
+          env.MAVEN_SETTINGS = env.DEMO_MAVEN_SETTINGS
+
+          env.DOCKER_REGISTRY_URL = env.DEMO_DOCKER_REGISTRY_URL
+          env.DOCKER_CREDENTIAL_ID = env.DEMO_DOCKER_CREDENTIAL_ID
+          env.DOCKER_IMAGE_NAME = env.DEMO_DOCKER_IMAGE_NAME
+          env.DOCKER_IMAGE_TAG = env.DEMO_DOCKER_IMAGE_TAG
+        }
+      }
+    }
+    stage ("Update Dependencies") {
+      when {
+        expression {
+          env.PROJECT_DEPENDENCIES
+        }
+      }
+      steps {
+        script {
+          def dependencies = env.PROJECT_DEPENDENCIES.split(",")
+          for (dependency in dependencies) {
+            def dependencyVersion = null
+
+            dir(dependency) {
+              checkout([$class: "GitSCM", branches: [[name: "*/${GIT_REMOTE_BRANCH_NAME}"]],
+                  userRemoteConfigs: [[credentialsId: env.GIT_CREDENTIAL_ID, url: "${GIT_PROJECT_GROUP_URL}/${dependency}.git"]]])
+              dependencyVersion = readMavenPom().version
+            }
+
+            sh("mvn versions:update-property -Dproperty=${dependency}.version -DnewVersion=${dependencyVersion}")
+          }
+        }
+      }
+    }
+    stage ("Increment Version") {
+      steps {
+        script {
+          env.INCREMENT_VERSION = "${PROJECT_VERSION}".endsWith("-SNAPSHOT") ? "NO" : "YES"
+          if (env.INCREMENT_VERSION == "YES") {
+            def (majorVersion, minorVersion, patchVersion) = "${PROJECT_VERSION}".split("\\.")
+            env.BUILD_VERSION = majorVersion + "." + minorVersion + "." + (patchVersion.toInteger() + 1)
+          } else {
+            env.BUILD_VERSION = env.PROJECT_VERSION
+          }
+        }
+      }
+    }
+    stage ("Maven Set Version") {
+      when {
+        environment name: "INCREMENT_VERSION", value: "YES"
+      }
+      steps {
+        script {
+          sh("mvn versions:set -DnewVersion=${BUILD_VERSION}")
+
+          sh("git add pom.xml")
+          sh("git config user.name '${GIT_COMMITTER_NAME}'")
+          sh("git config user.email '${GIT_COMMITTER_EMAIL}'")
+          sh("git commit -m 'Update version to ${BUILD_VERSION}' --author '${GIT_AUTHOR_NAME_AND_EMAIL}'")
+        }
+      }
+    }
+    stage ("Maven Deploy") {
+      steps {
+        script {
+          configFileProvider([configFile(fileId: env.MAVEN_SETTINGS, variable: "MAVEN_SETTINGS_FILE")]) {
+            sh("mvn -s ${MAVEN_SETTINGS_FILE} clean deploy")
+          }
+        }
+      }
+    }
+    stage ("Helm Set Version") {
+      steps {
+        script {
+          sh("yq -i '.appVersion = \"${BUILD_VERSION}\"' ./helm/Chart.yaml")
+        }
+      }
+    }
+    stage ("Git Push") {
+      when {
+        environment name: "INCREMENT_VERSION", value: "YES"
+      }
+      steps {
+        script {
+          withCredentials([usernamePassword(credentialsId: env.GIT_CREDENTIAL_ID,
+              usernameVariable: "GIT_USERNAME", passwordVariable: "GIT_PASSWORD")]){
+            sh("git push ${GIT_URL_SCHEME}${GIT_PASSWORD}@${GIT_URL_DOMAIN_AND_PATH} HEAD:${GIT_REMOTE_BRANCH_NAME}")
+          }
+        }
+      }
+    }
+    stage("Docker Build") {
+      steps {
+        script {
+          docker.withRegistry(DOCKER_REGISTRY_URL, DOCKER_CREDENTIAL_ID) {
+            docker.build("${PROJECT_GROUP_ID}/${PROJECT_ARTIFACT_ID}:${BUILD_VERSION}",
+                "--build-arg IMAGE_NAME=${DOCKER_IMAGE_NAME}"
+                + " --build-arg IMAGE_TAG=${DOCKER_IMAGE_TAG}"
+                + " --build-arg ARTIFACT_ID=${PROJECT_ARTIFACT_ID}"
+                + " --build-arg VERSION=${BUILD_VERSION}"
+                + " .")
+          }
+        }
+      }
+    }
+    stage("Docker Push") {
+      steps {
+        script {
+          docker.withRegistry(DOCKER_REGISTRY_URL, DOCKER_CREDENTIAL_ID) {
+            docker.image("${PROJECT_GROUP_ID}/${PROJECT_ARTIFACT_ID}:${BUILD_VERSION}").push()
+            docker.image("${PROJECT_GROUP_ID}/${PROJECT_ARTIFACT_ID}:${BUILD_VERSION}").push("latest")
+          }
+        }
+      }
+    }
+    stage ("Helm Upgrade") {
+      steps {
+        script {
+          sh("microk8s helm3 -n ${K8S_NAMESPACE} upgrade --install --create-namespace ${PROJECT_ARTIFACT_ID} ./helm"
+              + " --values ./helm/values.yaml"
+              + " --set ingress.hosts[0].host=${PROJECT_ARTIFACT_ID}.${K8S_INGRESS_HOST_SUFFIX}")
+        }
+      }
+    }
+  }
+}
