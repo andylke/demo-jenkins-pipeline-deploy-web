@@ -11,10 +11,8 @@ spec:
       {{- include "demo-jenkins-pipeline-deploy-web.selectorLabels" . | nindent 6 }}
   template:
     metadata:
-      {{- with .Values.podAnnotations }}
       annotations:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
+        releaseTime: {{ now | quote }}
       labels:
         {{- include "demo-jenkins-pipeline-deploy-web.selectorLabels" . | nindent 8 }}
     spec:
@@ -31,24 +29,41 @@ spec:
             {{- toYaml .Values.securityContext | nindent 12 }}
           image: "{{ .Values.image.registry }}/{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - java
+            - -XX:MaxRAMPercentage=70
+            - -XX:+UseShenandoahGC
+            - -XX:+UseStringDeduplication
+            - -XX:+HeapDumpOnOutOfMemoryError
+            - -XX:HeapDumpPath=/data/log_files
+            - -jar
+            - /app/app.jar
           ports:
             - name: http
               containerPort: 8080
               protocol: TCP
           livenessProbe:
             httpGet:
-              path: /actuator/health
+              path: {{ default "/actuator/health/liveness" .Values.livenessProbe.path }}
               port: http
-            initialDelaySeconds: {{ default 15 .Values.livenessProbe.initialDelaySeconds }}
+              {{- with .Values.livenessProbe.httpHeaders }}
+              httpHeaders:
+                {{- toYaml . | nindent 16 }}
+              {{- end }}
+            initialDelaySeconds: {{ default 60 .Values.livenessProbe.initialDelaySeconds }}
             timeoutSeconds: {{ default 5 .Values.livenessProbe.timeoutSeconds }}
-            periodSeconds: {{ default 5 .Values.livenessProbe.periodSeconds }}
+            periodSeconds: {{ default 10 .Values.livenessProbe.periodSeconds }}
           readinessProbe:
             httpGet:
-              path: /actuator/health
+              path: {{ default "/actuator/health/readiness" .Values.readinessProbe.path }}
               port: http
-            initialDelaySeconds: {{ default 15 .Values.livenessProbe.initialDelaySeconds }}
+              {{- with .Values.readinessProbe.httpHeaders }}
+              httpHeaders:
+                {{- toYaml . | nindent 16 }}
+              {{- end }}
+            initialDelaySeconds: {{ default 60 .Values.livenessProbe.initialDelaySeconds }}
             timeoutSeconds: {{ default 5 .Values.livenessProbe.timeoutSeconds }}
-            periodSeconds: {{ default 5 .Values.livenessProbe.periodSeconds }}
+            periodSeconds: {{ default 10 .Values.livenessProbe.periodSeconds }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           env:
@@ -64,6 +79,8 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.spring.datasource.secret }}
                   key: SPRING_DATASOURCE_PASSWORD
+            - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
+              value: {{ .Values.spring.kafka.bootstrapServers }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
