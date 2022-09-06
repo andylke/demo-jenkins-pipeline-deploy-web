@@ -66,6 +66,9 @@ spec:
             periodSeconds: {{ default 10 .Values.livenessProbe.periodSeconds }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: logs
+              mountPath: /data/log_files
           env:
             - name: SPRING_DATASOURCE_URL
               value: {{ .Values.spring.datasource.url }}
@@ -81,6 +84,14 @@ spec:
                   key: SPRING_DATASOURCE_PASSWORD
             - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
               value: {{ .Values.spring.kafka.bootstrapServers }}
+      volumes:
+        - name: logs
+      {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ .Release.Namespace }}-logs
+      {{- else}}
+          emptyDir: {}
+      {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

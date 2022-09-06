@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Configuration>
+	<Appenders>
+		<Console name="Console" target="SYSTEM_OUT">
+				<PatternLayout pattern="[%t][%p][%d{yyyy-MM-dd'T'HH:mm:ss.SSSZ}][%X{traceId},%X{spanId}][%c] %m%n" />
+		</Console>
+
+		<RollingRandomAccessFile name="RollingRandomAccessFile" fileName="/data/logs/${env:HOSTNAME:-demo-jenkins-pipeline-deploy-web}-log.txt" filePattern="/data/logs/$${date:yyyy-MM}/${env:HOSTNAME:-demo-jenkins-pipeline-deploy-web}-log-%d{yyyy-MM-dd}-%i.gz">
+			<PatternLayout pattern="[%t][%p][%d{yyyy-MM-dd'T'HH:mm:ss.SSSZ}][%X{traceId},%X{spanId}][%c] %m%n" />
+			<Policies>
+				<TimeBasedTriggeringPolicy interval="1" modulate="true" />
+				<SizeBasedTriggeringPolicy size="100 MB" />
+			</Policies>
+			<DefaultRolloverStrategy fileIndex="nomax" />
+		</RollingRandomAccessFile>
+
+		<Async name="Async">
+			<appender-ref ref="Console" />
+			<appender-ref ref="RollingRandomAccessFile" />
+		</Async>
+
+	</Appenders>
+	<Loggers>
+		<logger name="ktcmaai.sandbox" level="debug"/>
+		<Root level="info">
+			<AppenderRef ref="Async" />
+		</Root>
+	</Loggers>
+</Configuration>

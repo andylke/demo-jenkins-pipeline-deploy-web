@@ -89,6 +89,9 @@ tolerations: []
 
 affinity: {}
 
+persistence:
+  enabled: true
+
 spring:
   datasource:
     url: "jdbc:mysql://localhost:3306/demo"

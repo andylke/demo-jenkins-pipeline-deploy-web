@@ -13,22 +13,63 @@
 	<version>1.0.0-SNAPSHOT</version>
 	<properties>
 		<java.version>11</java.version>
+    <spring-cloud.version>2021.0.3</spring-cloud.version>
     <demo-jenkins-pipeline-deploy-lib.version>1.0.0-SNAPSHOT</demo-jenkins-pipeline-deploy-lib.version>
 	</properties>
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>org.springframework.cloud</groupId>
+        <artifactId>spring-cloud-dependencies</artifactId>
+        <version>${spring-cloud.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
 	<dependencies>
     <dependency>
-      <groupId>com.github.andylke.demo</groupId>
-      <artifactId>demo-jenkins-pipeline-deploy-lib</artifactId>
-      <version>${demo-jenkins-pipeline-deploy-lib.version}</version>
+      <groupId>ktcmaai-sandbox</groupId>
+      <artifactId>ktcmaai-sandbox-demo-lib</artifactId>
+      <version>${ktcmaai-sandbox-demo-lib.version}</version>
     </dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-actuator</artifactId>
+      <exclusions>
+        <exclusion>
+          <groupId>org.springframework.boot</groupId>
+          <artifactId>spring-boot-starter-logging</artifactId>
+        </exclusion>
+      </exclusions>
 		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-web</artifactId>
+      <exclusions>
+        <exclusion>
+          <groupId>org.springframework.boot</groupId>
+          <artifactId>spring-boot-starter-logging</artifactId>
+        </exclusion>
+      </exclusions>
 		</dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-log4j2</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.kafka</groupId>
+      <artifactId>spring-kafka</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.micrometer</groupId>
+      <artifactId>micrometer-registry-prometheus</artifactId>
+      <scope>runtime</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.cloud</groupId>
+      <artifactId>spring-cloud-starter-sleuth</artifactId>
+    </dependency>
 
     <!-- apache.commons -->
     <dependency>
